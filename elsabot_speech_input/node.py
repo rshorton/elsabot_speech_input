@@ -2,6 +2,7 @@ import os
 from threading import Timer
 import json
 import queue
+from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
@@ -13,6 +14,8 @@ from speech_action_interfaces.msg import Wakeword
 from std_msgs.msg import Bool, String, Int32
 
 from .server_client import SpeechInputServerClient
+from elsabot_audio_output_interfaces.srv import PlayAudioFile
+from elsabot_audio_output_interfaces.msg import StreamType
 
 class SpeechInput(Node):
     def __init__(self):
@@ -21,11 +24,16 @@ class SpeechInput(Node):
         self.speech_server_host_port = '127.0.0.1:8800'
         self.wake_word_model_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'wakewords/')
         self.wake_word_model_dir_server = '/jetson_ws/src/elsabot_speech_input/wakewords/'
+        self.audio_file_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'audio_files/')
+
+        self.rec_start_clip_filename = 'rec_start.mp3'
+        self.rec_stop_clip_filename = 'rec_stop.mp3'
 
         self.get_logger().info(f'Wake word model dir: {self.wake_word_model_dir}')
         self.get_logger().info(f'Wake word model dir (server): {self.wake_word_model_dir_server}')
 
-        self.stt_server = ActionServer(self, Recognize, 'recognize', self.stt_execute_callback, cancel_callback=self.stt_cancel_callback)
+        self.stt_server = ActionServer(self, Recognize, 'recognize', self.stt_execute_callback, 
+                                       cancel_callback=self.stt_cancel_callback)
 
         self.pub_listening = self.create_publisher(Bool, '/speech_detect/listening', 10)
         self.pub_vad = self.create_publisher(Bool, '/speech_detect/vad', 10)
@@ -34,9 +42,14 @@ class SpeechInput(Node):
 
         self.sub_speaking = self.create_subscription(Bool, '/head/speaking', self.speaking_callback, 2);
 
-        self.speech_server_client = SpeechInputServerClient(self.get_logger(), self.speech_server_host_port, self.wakeword_callback, self.vad_callback,
-                                        self.speech_recog_finished_callback, self.speech_recog_failed_callback)
-    
+        self.speech_server_client = SpeechInputServerClient(self.get_logger(), self.speech_server_host_port,
+                                                            self.wakeword_callback, self.vad_callback,
+                                                            self.speech_recog_finished_callback,
+                                                            self.speech_recog_failed_callback,
+                                                            self.recording_callback)
+
+        self.audio_playback_client = self.create_client(PlayAudioFile, 'play_audio_service')
+
         self.set_status_timer()
         self.stt_results_queue = queue.Queue()
 
@@ -83,6 +96,23 @@ class SpeechInput(Node):
     def wakeword_callback(self, wakeword):
         self.get_logger().info(f'Wakeword: {wakeword}')
         self.report_wakeword(wakeword)
+
+    def recording_callback(self, active):
+        self.get_logger().info(f'Recording: {active}')
+
+        if not self.audio_playback_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info('Error, cannot play recording feedback, play audio service not available')
+        else:            
+            dir = Path(self.audio_file_dir)
+            req = PlayAudioFile.Request()
+            if active:
+                req.audio_req.file_path = os.path.join(dir, self.rec_start_clip_filename)
+            else:                
+                req.audio_req.file_path = os.path.join(dir, self.rec_stop_clip_filename)
+            req.stream_type.stream_type = StreamType.STREAM_TYPE_BG                
+
+            # Fire and forget
+            self.audio_playback_client.call_async(req)
 
     def speech_recog_finished_callback(self, text):
         self.get_logger().info(f'Got speech recognizer result: {text}')

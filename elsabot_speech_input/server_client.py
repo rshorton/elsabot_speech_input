@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 class SpeechInputServerClient():
-    def __init__(self, logger, server_host_and_port, wakeword_cb, vad_cb, speech_recog_finished_cb, speech_recog_failed_cb):
+    def __init__(self, logger, server_host_and_port, wakeword_cb, vad_cb, speech_recog_finished_cb,     speech_recog_failed_cb, recording_cb):
         self.logger = logger
         self.server_host_and_port = server_host_and_port
 
@@ -19,6 +19,7 @@ class SpeechInputServerClient():
         self.vad_cb = vad_cb
         self.speech_recog_finished_cb = speech_recog_finished_cb
         self.speech_recog_failed_cb = speech_recog_failed_cb
+        self.recording_cb = recording_cb
 
         self.logger.info(f'Starting client thread')
         # Start the network thread
@@ -61,6 +62,10 @@ class SpeechInputServerClient():
                         self.wakeword_cb(data['wakeword'])
                     elif data['msg'] == 'vad':
                         self.vad_cb(data['active'])
+                    elif data['msg'] == 'recording_started':
+                        self.recording_cb(True)
+                    elif data['msg'] == 'recording_stopped':
+                        self.recording_cb(False)
                     elif data['msg'] == 'heartbeat':
                         self.logger.info(f'Heartbeat')        
                     else:
@@ -101,7 +106,9 @@ class SpeechInputServerClient():
 
         for entry in p.iterdir():
             if entry.is_file():
-                print(f'Loading wake word model: {entry.name}')
                 name = Path(entry.name).stem
+                if name != 'elsabot':
+                    continue
+                print(f'Loading wake word model: {entry.name}')
                 model_path = os.path.join(speech_server_ww_model_dir, entry.name)
                 asyncio.run_coroutine_threadsafe(self._send_http_post('wake_word_set', {"ww_name": name, "ww_model_path": model_path}), self.loop)

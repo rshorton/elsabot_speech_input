@@ -13,7 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'wakewords'), glob('wakewords/*')),
-    
+        (os.path.join('share', package_name, 'audio_files'), glob('audio_files/*'))
     ],
     install_requires=['setuptools'],
     zip_safe=True,
