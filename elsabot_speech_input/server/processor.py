@@ -238,9 +238,9 @@ class SpeechProcessor():
 
                 # Feed to openWakeWord model
                 if self.oww_model is not None:
-                    prediction = self.oww_model.predict(audio, threshold={"elsabot": 0.5}, debounce_time=1.0)
+                    prediction = self.oww_model.predict(audio, threshold={"elsabot": 0.8}, debounce_time=1.0)
                     for mdl in prediction.keys():
-                        if prediction[mdl] > 0.5:
+                        if prediction[mdl] > 0.8:
                             print(f'{self.log_prefix} ww detected: {mdl}')
                             self.status_callback(self.callback_context, {"msg": "wakeword_detected", "wakeword": mdl})
             except Exception as ex:
