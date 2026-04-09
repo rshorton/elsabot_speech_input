@@ -21,7 +21,9 @@ class SpeechInput(Node):
     def __init__(self):
         super().__init__('speech_input_node')
 
-        self.speech_server_host_port = '127.0.0.1:8800'
+        self.declare_parameter('stt_server_host_and_port', '127.0.0.1:8800')
+        stt_server_host_and_port = self.get_parameter('stt_server_host_and_port').get_parameter_value().string_value
+
         self.wake_word_model_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'wakewords/')
         self.wake_word_model_dir_server = '/jetson_ws/src/elsabot_speech_input/wakewords/'
         self.audio_file_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'audio_files/')
@@ -42,7 +44,8 @@ class SpeechInput(Node):
 
         self.sub_speaking = self.create_subscription(Bool, '/head/speaking', self.speaking_callback, 2);
 
-        self.speech_server_client = SpeechInputServerClient(self.get_logger(), self.speech_server_host_port,
+        self.speech_server_client = SpeechInputServerClient(self.get_logger(),
+                                                            stt_server_host_and_port,
                                                             self.wakeword_callback, self.vad_callback,
                                                             self.speech_recog_finished_callback,
                                                             self.speech_recog_failed_callback,
@@ -157,8 +160,6 @@ class SpeechInput(Node):
         # fix - implement
         self.last_aoa = 0
         return
-
-
 
 def main(args=None):
     rclpy.init(args=args)

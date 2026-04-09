@@ -8,7 +8,8 @@ import time
 from pathlib import Path
 
 class SpeechInputServerClient():
-    def __init__(self, logger, server_host_and_port, wakeword_cb, vad_cb, speech_recog_finished_cb,     speech_recog_failed_cb, recording_cb):
+    def __init__(self, logger, server_host_and_port, wakeword_cb, vad_cb,
+                 speech_recog_finished_cb, speech_recog_failed_cb, recording_cb):
         self.logger = logger
         self.server_host_and_port = server_host_and_port
 
