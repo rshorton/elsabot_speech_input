@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 class SpeechInputServerClient():
-    def __init__(self, logger, server_host_and_port, wakeword_cb, vad_cb,
+    def __init__(self, logger, server_host_and_port, connected_cb, wakeword_cb, vad_cb,
                  speech_recog_finished_cb, speech_recog_failed_cb, recording_cb):
         self.logger = logger
         self.server_host_and_port = server_host_and_port
@@ -16,22 +16,18 @@ class SpeechInputServerClient():
         self.loop = asyncio.new_event_loop()
         self.client = httpx.AsyncClient()
         
+        self.connected_cb = connected_cb
         self.wakeword_cb = wakeword_cb
         self.vad_cb = vad_cb
         self.speech_recog_finished_cb = speech_recog_finished_cb
         self.speech_recog_failed_cb = speech_recog_failed_cb
         self.recording_cb = recording_cb
 
+    def run(self):
         self.logger.info(f'Starting client thread')
         # Start the network thread
-        self.thread = threading.Thread(target=self._run_async_loop, daemon=True).start()
-
         self.logger.info(f'Starting server listener')
-
-        time.sleep(1) 
-
-        # Schedule the WebSocket listener
-        #asyncio.run_coroutine_threadsafe(self._listen_to_server(), self.loop)
+        self.thread = threading.Thread(target=self._run_async_loop, daemon=True).start()
 
     def _run_async_loop(self):
         # Runs the asyncio loop in a dedicated background thread.
@@ -50,15 +46,19 @@ class SpeechInputServerClient():
         async for websocket in websockets.connect(url):
             try:
                 self.logger.info("Connected to Speech Input Server WebSocket")
+                self.connected_cb()
+
                 while True:
                     data_raw = await websocket.recv()
-                    self.logger.info(f"Received WS Event from server: {str(data_raw)}")
+                    self.logger.debug(f"Received WS Event from server: {str(data_raw)}")
                     data = json.loads(data_raw)  
                   
                     if data['msg'] == 'stt_ok':
                         self.speech_recog_finished_cb(data['text'])
                     elif data['msg'] == 'stt_failed':
                         self.speech_recog_failed_cb(data['error_data'])
+                    elif data['msg'] == 'stt_recognizing':
+                        pass
                     elif data['msg'] == 'wakeword_detected':
                         self.wakeword_cb(data['wakeword'])
                     elif data['msg'] == 'vad':
@@ -68,7 +68,7 @@ class SpeechInputServerClient():
                     elif data['msg'] == 'recording_stopped':
                         self.recording_cb(False)
                     elif data['msg'] == 'heartbeat':
-                        self.logger.info(f'Heartbeat')        
+                        pass
                     else:
                         self.logger.error(f'Unrecognized status: {data['msg']}')
                   
@@ -110,6 +110,6 @@ class SpeechInputServerClient():
                 name = Path(entry.name).stem
                 if name != 'elsabot':
                     continue
-                print(f'Loading wake word model: {entry.name}')
+                self.logger.info(f'Loading wake word model: {entry.name}')
                 model_path = os.path.join(speech_server_ww_model_dir, entry.name)
                 asyncio.run_coroutine_threadsafe(self._send_http_post('wake_word_set', {"ww_name": name, "ww_model_path": model_path}), self.loop)

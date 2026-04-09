@@ -102,7 +102,7 @@ class SpeechProcessor():
     def reset_recording(self):
         self.recording_chunk_cnt = 0
         self.recording_delay_chunt_cnt = 0
-        self.recording_no_vad_chunk_cnt = 0
+        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt*1.5)
         self.recording_stop_listening = False
         self.recording = False
         self.recording_buffer = b""
@@ -216,14 +216,14 @@ class SpeechProcessor():
                         self.recording_chunk_cnt += 1
 
                         if cur_vad:
-                            self.recording_no_vad_chunk_cnt = 0
+                            self.recording_no_vad_chunk_cnt = self.stop_record_delay_after_no_vad_chunk_cnt
                         else:
-                            self.recording_no_vad_chunk_cnt += 1
+                            self.recording_no_vad_chunk_cnt -= 1
                             print(f'recording_no_vad_chunk_cnt {self.recording_no_vad_chunk_cnt}')
                         
                         if self.recording_stop_listening or \
                             self.recording_chunk_cnt >= self.max_record_chunks or \
-                            self.recording_no_vad_chunk_cnt > self.stop_record_delay_after_no_vad_chunk_cnt:
+                            self.recording_no_vad_chunk_cnt <= 0:
 
                             self.notify_recording_stopped()
 

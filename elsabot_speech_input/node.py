@@ -46,18 +46,23 @@ class SpeechInput(Node):
 
         self.speech_server_client = SpeechInputServerClient(self.get_logger(),
                                                             stt_server_host_and_port,
-                                                            self.wakeword_callback, self.vad_callback,
+                                                            self.connected_callback,
+                                                            self.wakeword_callback,
+                                                            self.vad_callback,
                                                             self.speech_recog_finished_callback,
                                                             self.speech_recog_failed_callback,
                                                             self.recording_callback)
+        self.speech_server_client.run()
 
-        self.audio_playback_client = self.create_client(PlayAudioFile, 'play_audio_service')
+        self.audio_playback_client = self.create_client(PlayAudioFile, 'play_audio')
 
         self.set_status_timer()
         self.stt_results_queue = queue.Queue()
 
         self.get_logger().info('SpeechInput client initialized')
 
+    def connected_callback(self):
+        self.get_logger().debug(f'Received connected callback, loading wakewords')
         self.speech_server_client.load_wake_words(self.wake_word_model_dir, self.wake_word_model_dir_server)
 
     def clear_stt_results_queue(self):
@@ -90,7 +95,7 @@ class SpeechInput(Node):
         goal_handle.canceled()
 
     def speaking_callback(self, msg):
-        self.get_logger().info(f'Received speaking: mode: {msg.data}')
+        self.get_logger().debug(f'Received speaking: mode: {msg.data}')
 
     def vad_callback(self, active):
         self.get_logger().info(f'VAD change: active: {active}')
