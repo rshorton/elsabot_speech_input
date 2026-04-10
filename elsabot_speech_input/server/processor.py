@@ -25,6 +25,9 @@ class SpeechProcessor():
 
         self.oww_model = None
         self.oww_model_framework = 'onnx'
+        self.wake_word_thresh = 0.8
+
+        self.vad_thresh = 0.95
 
         self.input_stream = None
         self.def_audio_dev_name = 'ReSpeaker'
@@ -51,6 +54,8 @@ class SpeechProcessor():
         self.whisper_language = 'en'
         self.whisper_model_path = '/opt/whisper/models/turbo'
         self.whisper_model = WhisperModel(self.whisper_model_path, device="cuda", compute_type="int8_float16")
+
+        self.test_rec_file = "/jetson_ws/test_audio.wav"
 
     def open_wakeword_model(self, ww_name, ww_model_path):
         self.oww_model = Model(wakeword_models=[ww_model_path], inference_framework=self.oww_model_framework)
@@ -126,10 +131,10 @@ class SpeechProcessor():
 
         self.reset_recording()
 
-        ww_test = False
-        ww_test_len = self.sample_rate*6
-        ww_test_buffer = RingBuffer(capacity=ww_test_len, dtype=np.int16)
-        ww_test_save_after_chunks = 0
+        test_rec = True
+        test_rec_len = self.sample_rate*6
+        test_rec_buffer = RingBuffer(capacity=test_rec_len, dtype=np.int16)
+        test_rec_save_after_chunks = 0
 
         while True:
             try:
@@ -176,28 +181,30 @@ class SpeechProcessor():
             audio = np.frombuffer(chunk, dtype=np.int16) [0::self.channels]
 
             try:
-                if ww_test:
-                    ww_test_buffer.extend(audio)
+                if test_rec:
+                    test_rec_buffer.extend(audio)
 
                 vad(audio)
                 # Consider last 10 frames (1280/16000*10= 800ms)
                 vad_frames = list(vad.prediction_buffer)[-10:]
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
 
-                cur_vad = vad_max_score > 0.8
+                print(f'vad_max_score {vad_max_score}')
+
+                cur_vad = vad_max_score > self.vad_thresh
                 if cur_vad != vad_active:
                     vad_active = cur_vad
                     print(f'{self.log_prefix} vad change: {cur_vad}')
                     self.status_callback(self.callback_context, {"msg": "vad", "active": bool(vad_active)})
 
-                    if ww_test and cur_vad:
-                        ww_test_save_after_chunks = 2/self.chunk_period_s
+                    if test_rec and cur_vad:
+                        test_rec_save_after_chunks = 2/self.chunk_period_s
 
-                if ww_test and ww_test_save_after_chunks > 0:
-                    ww_test_save_after_chunks -= 1
-                    if ww_test_save_after_chunks == 0:
-                        to_save = np.array(ww_test_buffer)
-                        sf.write("/jetson_ws/ww_audio.wav", to_save, self.sample_rate)
+                if test_rec and test_rec_save_after_chunks > 0:
+                    test_rec_save_after_chunks -= 1
+                    if test_rec_save_after_chunks == 0:
+                        to_save = np.array(test_rec_buffer)
+                        sf.write(self.test_rec_file, to_save, self.sample_rate)
 
                 if self.recording:
                     if self.recording_delay_chunk_cnt > 0:
@@ -238,9 +245,9 @@ class SpeechProcessor():
 
                 # Feed to openWakeWord model
                 if self.oww_model is not None:
-                    prediction = self.oww_model.predict(audio, threshold={"elsabot": 0.8}, debounce_time=1.0)
+                    prediction = self.oww_model.predict(audio, threshold={"elsabot": self.wake_word_thresh}, debounce_time=1.0)
                     for mdl in prediction.keys():
-                        if prediction[mdl] > 0.8:
+                        if prediction[mdl] > self.wake_word_thresh:
                             print(f'{self.log_prefix} ww detected: {mdl}')
                             self.status_callback(self.callback_context, {"msg": "wakeword_detected", "wakeword": mdl})
             except Exception as ex:
