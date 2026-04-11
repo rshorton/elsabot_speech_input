@@ -27,7 +27,7 @@ class SpeechProcessor():
         self.oww_model_framework = 'onnx'
         self.wake_word_thresh = 0.8
 
-        self.vad_thresh = 0.95
+        self.vad_thresh = 0.85
 
         self.input_stream = None
         self.def_audio_dev_name = 'ReSpeaker'
