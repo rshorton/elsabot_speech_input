@@ -107,7 +107,7 @@ class SpeechProcessor():
     def reset_recording(self):
         self.recording_chunk_cnt = 0
         self.recording_delay_chunt_cnt = 0
-        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt*1.5)
+        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt*2.0)
         self.recording_stop_listening = False
         self.recording = False
         self.recording_buffer = b""
@@ -188,8 +188,6 @@ class SpeechProcessor():
                 # Consider last 10 frames (1280/16000*10= 800ms)
                 vad_frames = list(vad.prediction_buffer)[-10:]
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
-
-                print(f'vad_max_score {vad_max_score}')
 
                 cur_vad = vad_max_score > self.vad_thresh
                 if cur_vad != vad_active:
