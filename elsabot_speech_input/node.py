@@ -44,6 +44,14 @@ class SpeechInput(Node):
 
         self.sub_speaking = self.create_subscription(Bool, '/head/speaking', self.speaking_callback, 2);
 
+        self.last_aoa = -1
+
+        self.last_seeed_vad = -1
+        self.seeed_vad_active_count = 0
+
+        self.last_server_vad = False
+        self.last_combined_vad = False
+
         self.speech_server_client = SpeechInputServerClient(self.get_logger(),
                                                             stt_server_host_and_port,
                                                             self.connected_callback,
@@ -99,7 +107,8 @@ class SpeechInput(Node):
 
     def vad_callback(self, active):
         self.get_logger().info(f'VAD change: active: {active}')
-        self.report_vad(active)
+        self.last_server_vad = active
+        self.combine_vad_sources()
 
     def wakeword_callback(self, wakeword):
         self.get_logger().info(f'Wakeword: {wakeword}')
@@ -153,18 +162,42 @@ class SpeechInput(Node):
         self.pub_wakeword.publish(msg)
 
     def set_status_timer(self):
-        self.timer = Timer(0.5, self.report_status)
+        self.timer = Timer(0.1, self.report_status)
         self.timer.start()
         self.check_angle_of_arrival()
+        self.check_alt_vad()
 
     def report_status(self):
         self.set_status_timer()
         self.check_angle_of_arrival()
 
     def check_angle_of_arrival(self):
-        # fix - implement
-        self.last_aoa = 0
-        return
+        aoa = self.speech_server_client.read_mic_array_aoa()
+        if aoa != self.last_aoa:
+            self.last_aoa = aoa
+            self.report_aoa(aoa)
+
+    def combine_vad_sources(self):
+        all_vad = self.last_server_vad and bool(self.last_seeed_vad)
+        if all_vad != self.last_combined_vad:
+            self.last_combined_vad = all_vad
+            self.report_vad(all_vad)
+            print(f'Combined VAD: {all_vad}')
+
+    def check_alt_vad(self):
+        detected = self.speech_server_client.read_mic_array_vad()
+        if detected:
+            self.seeed_vad_active_count += 1
+            print(f'Seeed Mic VAD cnt: {self.seeed_vad_active_count}')
+            if self.seeed_vad_active_count < 3:
+                return
+        else:
+            self.seeed_vad_active_count = 0                
+            
+        if detected != self.last_seeed_vad:
+            self.last_seeed_vad = detected
+            print(f'Seeed Mic VAD: {detected}')
+            self.combine_vad_sources()
 
 def main(args=None):
     rclpy.init(args=args)

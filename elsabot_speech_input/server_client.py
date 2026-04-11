@@ -7,6 +7,8 @@ import json
 import time
 from pathlib import Path
 
+from .tuning import Tuning, find
+
 class SpeechInputServerClient():
     def __init__(self, logger, server_host_and_port, connected_cb, wakeword_cb, vad_cb,
                  speech_recog_finished_cb, speech_recog_failed_cb, recording_cb):
@@ -23,17 +25,32 @@ class SpeechInputServerClient():
         self.speech_recog_failed_cb = speech_recog_failed_cb
         self.recording_cb = recording_cb
 
+        self.seeed_mic_dev = find()
+        if self.seeed_mic_dev is None:
+            self.logger.error(f'Error, failed to find Seeed Mic device')
+        self.configure_seed_mic_dev()
+
     def run(self):
         self.logger.info(f'Starting client thread')
         # Start the network thread
         self.logger.info(f'Starting server listener')
         self.thread = threading.Thread(target=self._run_async_loop, daemon=True).start()
 
+    def read_mic_array_aoa(self):
+        return self.seeed_mic_dev.read('DOAANGLE')
+
+    def read_mic_array_vad(self):
+        return self.seeed_mic_dev.read('VOICEACTIVITY')
+
+    def configure_seed_mic_dev(self):
+        self.seeed_mic_dev.write('AGCMAXGAIN', 2)        
+        self.seeed_mic_dev.write('GAMMAVAD_SR', 15)
+        return
+
     def _run_async_loop(self):
         # Runs the asyncio loop in a dedicated background thread.
         self.logger.info(f'Running loop')
         asyncio.set_event_loop(self.loop)
-
       
         self.loop.create_task(self._listen_to_server())
         self.loop.run_forever()
