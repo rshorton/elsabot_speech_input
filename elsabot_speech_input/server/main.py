@@ -57,13 +57,15 @@ async def send_heartbeat():
             "timestamp": datetime.now().isoformat()
         })
         await asyncio.sleep(5)
+
 class SpeechRecogStartArgs(BaseModel):
     timeout: float
+    delay: float
 
 @app.post("/speech_recognizer_start")
 def receive_command(args: SpeechRecogStartArgs):
     print(f"HTTP Post: Received speech_recognizer_start")
-    speech_processor.new_command({'cmd': 'speech_recognizer_start', 'timeout': args.timeout})
+    speech_processor.new_command({'cmd': 'speech_recognizer_start', 'args': args})
     
     return {
         "result": "queued",

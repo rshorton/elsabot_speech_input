@@ -41,8 +41,7 @@ class SpeechProcessor():
         self.max_record_chunks = int(self.max_record_duration_s/self.chunk_period_s)
         print(f'{self.log_prefix} Max record chunks: {self.max_record_chunks}')
 
-        # Avoid recording pre-recording beep
-        self.pre_recording_delay = 0.75
+        self.pre_recording_delay = 0
         self.pre_recording_delay_chunk_cnt = int(self.pre_recording_delay/self.chunk_period_s)
 
         self.stop_record_delay_after_no_vad_s = 1.0
@@ -106,7 +105,7 @@ class SpeechProcessor():
 
     def reset_recording(self):
         self.recording_chunk_cnt = 0
-        self.recording_delay_chunt_cnt = 0
+        self.recording_delay_chunk_cnt = 0
         self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt*2.0)
         self.recording_stop_listening = False
         self.recording = False
@@ -131,9 +130,10 @@ class SpeechProcessor():
 
         self.reset_recording()
 
+        ring_buf_len = self.sample_rate*6
+        audio_ring_buf = RingBuffer(capacity=ring_buf_len, dtype=np.int16)
+
         test_rec = True
-        test_rec_len = self.sample_rate*6
-        test_rec_buffer = RingBuffer(capacity=test_rec_len, dtype=np.int16)
         test_rec_save_after_chunks = 0
 
         while True:
@@ -146,27 +146,38 @@ class SpeechProcessor():
 
                 elif cmd['cmd'] == 'speech_recognizer_start':
                     if self.speech_recog_active:
-                        print('{self.log_prefix} Speech recog already active')
+                        print(f'{self.log_prefix} Speech recog already active')
                     else:
+                        delay = cmd['args'].delay
+
                         self.notify_recording_started()
-                        self.recording_delay_chunk_cnt =self.pre_recording_delay_chunk_cnt
-                        self.max_record_chunks = int(cmd['timeout']/self.chunk_period_s)
+                        self.max_record_chunks = int(cmd['args'].timeout/self.chunk_period_s)
                         self.speech_recog_active = True
                         self.reset_recording()
                         self.recording = True
 
-                        print('{self.log_prefix} Speech recog recording start')
+                        print(f'{self.log_prefix} Speech recog recording start')
+                        self.recording_delay_chunk_cnt = 0
+                        if delay > 0:
+                            self.recording_delay_chunk_cnt = int(delay/self.chunk_period_s)
+                            print(f'Record with delay: {delay}, num chunks: {self.recording_delay_chunk_cnt}')
+
+                        elif delay < 0:
+                            num_samples = int(delay*self.sample_rate)
+                            print(f'Record with pre-start data, delay: {delay}, num samples: {num_samples}')
+                            self.recording_buffer += (np.array(audio_ring_buf)[num_samples:]).tobytes()
+
                 elif cmd['cmd'] == 'speech_recognizer_cancel':
                     if self.speech_recog_active and self.recording:
                         self.speech_recog_active = False
                         self.reset_recording()
                         self.notify_recording_stopped()
-                        print('{self.log_prefix} Speech recog cancelled')
+                        print(f'{self.log_prefix} Speech recog cancelled')
 
                 elif cmd['cmd'] == 'speech_recognizer_finish':
                     if self.speech_recog_active and self.recording:
                         self.recording_stop_listening = True
-                        print('{self.log_prefix} Speech recog recording finished')
+                        print(f'{self.log_prefix} Speech recog recording finished')
 
                 self.queue.task_done()
             except queue.Empty:
@@ -179,11 +190,9 @@ class SpeechProcessor():
                 continue
 
             audio = np.frombuffer(chunk, dtype=np.int16) [0::self.channels]
+            audio_ring_buf.extend(audio)
 
             try:
-                if test_rec:
-                    test_rec_buffer.extend(audio)
-
                 vad(audio)
                 # Consider last 10 frames (1280/16000*10= 800ms)
                 vad_frames = list(vad.prediction_buffer)[-10:]
@@ -201,13 +210,13 @@ class SpeechProcessor():
                 if test_rec and test_rec_save_after_chunks > 0:
                     test_rec_save_after_chunks -= 1
                     if test_rec_save_after_chunks == 0:
-                        to_save = np.array(test_rec_buffer)
+                        to_save = np.array(audio_ring_buf)
                         sf.write(self.test_rec_file, to_save, self.sample_rate)
 
                 if self.recording:
                     if self.recording_delay_chunk_cnt > 0:
                         self.recording_delay_chunk_cnt -= 1
-                        print(f'{self.log_prefix} pre-record delay')
+                        #print(f'{self.log_prefix} pre-record delay')
 
                         if self.recording_delay_chunk_cnt == 0:
                             vad = openwakeword.VAD()
@@ -224,7 +233,7 @@ class SpeechProcessor():
                             self.recording_no_vad_chunk_cnt = self.stop_record_delay_after_no_vad_chunk_cnt
                         else:
                             self.recording_no_vad_chunk_cnt -= 1
-                            print(f'recording_no_vad_chunk_cnt {self.recording_no_vad_chunk_cnt}')
+                            #print(f'recording_no_vad_chunk_cnt {self.recording_no_vad_chunk_cnt}')
                         
                         if self.recording_stop_listening or \
                             self.recording_chunk_cnt >= self.max_record_chunks or \

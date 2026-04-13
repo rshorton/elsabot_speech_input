@@ -43,7 +43,7 @@ class SpeechInputServerClient():
         return self.seeed_mic_dev.read('VOICEACTIVITY')
 
     def configure_seed_mic_dev(self):
-        self.seeed_mic_dev.write('AGCMAXGAIN', 2)        
+        self.seeed_mic_dev.write('AGCMAXGAIN', 4)        
         self.seeed_mic_dev.write('GAMMAVAD_SR', 15)
         return
 
@@ -102,8 +102,10 @@ class SpeechInputServerClient():
         except Exception as e:
             self.logger.error(f"HTTP Request failed: {e}")
 
-    def start_speech_recognizer(self, timeout):
-        asyncio.run_coroutine_threadsafe(self._send_http_post('speech_recognizer_start', {"timeout": timeout}), self.loop)
+    def start_speech_recognizer(self, timeout, delay):
+        args = {'timeout': timeout, 'delay': delay}
+        self.logger.info(f"Recog delay: {delay}")
+        asyncio.run_coroutine_threadsafe(self._send_http_post('speech_recognizer_start', args), self.loop)
 
     def finish_speech_recognizer(self):
         asyncio.run_coroutine_threadsafe(self._send_http_post('speech_recognizer_finish', None), self.loop)

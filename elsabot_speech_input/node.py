@@ -1,4 +1,5 @@
 import os
+import time
 from threading import Timer
 import json
 import queue
@@ -34,6 +35,20 @@ class SpeechInput(Node):
         self.get_logger().info(f'Wake word model dir: {self.wake_word_model_dir}')
         self.get_logger().info(f'Wake word model dir (server): {self.wake_word_model_dir_server}')
 
+        self.last_aoa = -1
+
+        self.last_seeed_vad = -1
+        self.seeed_vad_active_count = 0
+
+        self.last_server_vad = False
+        self.last_combined_vad = False
+
+        self.stt_results_queue = queue.Queue()
+
+        self.delayed_vad_report_queue = queue.Queue()
+        self.next_delayed_vad_report = None
+        self.vad_report_delay = 0.75
+
         self.stt_server = ActionServer(self, Recognize, 'recognize', self.stt_execute_callback, 
                                        cancel_callback=self.stt_cancel_callback)
 
@@ -43,14 +58,6 @@ class SpeechInput(Node):
         self.pub_wakeword = self.create_publisher(Wakeword, '/speech_detect/wakeword', 10)
 
         self.sub_speaking = self.create_subscription(Bool, '/head/speaking', self.speaking_callback, 2);
-
-        self.last_aoa = -1
-
-        self.last_seeed_vad = -1
-        self.seeed_vad_active_count = 0
-
-        self.last_server_vad = False
-        self.last_combined_vad = False
 
         self.speech_server_client = SpeechInputServerClient(self.get_logger(),
                                                             stt_server_host_and_port,
@@ -64,8 +71,7 @@ class SpeechInput(Node):
 
         self.audio_playback_client = self.create_client(PlayAudioFile, 'play_audio')
 
-        self.set_status_timer()
-        self.stt_results_queue = queue.Queue()
+        self.set_timer()
 
         self.get_logger().info('SpeechInput client initialized')
 
@@ -82,7 +88,7 @@ class SpeechInput(Node):
 
     def stt_execute_callback(self, goal_handle):
         self.clear_stt_results_queue()
-        self.speech_server_client.start_speech_recognizer(goal_handle.request.timeout)
+        self.speech_server_client.start_speech_recognizer(goal_handle.request.timeout, goal_handle.request.delay)
         # Wait for the result
         r = self.stt_results_queue.get()
 
@@ -161,15 +167,33 @@ class SpeechInput(Node):
         msg.angle = self.last_aoa
         self.pub_wakeword.publish(msg)
 
-    def set_status_timer(self):
-        self.timer = Timer(0.1, self.report_status)
+    def set_timer(self):
+        self.timer = Timer(0.1, self.timer_expired)
         self.timer.start()
+
+    def timer_expired(self):
+        self.set_timer()
         self.check_angle_of_arrival()
         self.check_alt_vad()
+        self.process_delayed_vad_report()
 
-    def report_status(self):
-        self.set_status_timer()
-        self.check_angle_of_arrival()
+    def process_delayed_vad_report(self):
+        while(True):
+            if self.next_delayed_vad_report is None:
+                try:
+                    item = self.delayed_vad_report_queue.get_nowait()
+                    self.next_delayed_vad_report = item
+                except queue.Empty:
+                    break
+
+            now = time.monotonic()
+            #print(f'now: {now}, next: {self.next_delayed_vad_report['when']}')
+            if self.next_delayed_vad_report['when'] < now:
+                self.get_logger().info(f'Calling delayed VAD report')
+                self.next_delayed_vad_report['method']()
+                self.next_delayed_vad_report = None
+            else:
+                break                
 
     def check_angle_of_arrival(self):
         aoa = self.speech_server_client.read_mic_array_aoa()
@@ -181,8 +205,13 @@ class SpeechInput(Node):
         all_vad = self.last_server_vad and bool(self.last_seeed_vad)
         if all_vad != self.last_combined_vad:
             self.last_combined_vad = all_vad
-            self.report_vad(all_vad)
-            print(f'Combined VAD: {all_vad}')
+            self.get_logger().info(f'Combined VAD Change: {all_vad}')
+            # Delay the VAD report to allow time for a wakeword notification to arrive.
+            # The Wakework should be report first so the STT recording can be configured
+            # to omit the wakeword.
+            when = time.monotonic() + self.vad_report_delay
+            #print(f'when: {when}')
+            self.delayed_vad_report_queue.put({'when': when, 'method': lambda: self.report_vad(all_vad)})
 
     def check_alt_vad(self):
         detected = self.speech_server_client.read_mic_array_vad()
