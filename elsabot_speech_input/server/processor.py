@@ -161,11 +161,12 @@ class SpeechProcessor():
                         if delay > 0:
                             self.recording_delay_chunk_cnt = int(delay/self.chunk_period_s)
                             print(f'Record with delay: {delay}, num chunks: {self.recording_delay_chunk_cnt}')
-
                         elif delay < 0:
                             num_samples = int(delay*self.sample_rate)
                             print(f'Record with pre-start data, delay: {delay}, num samples: {num_samples}')
                             self.recording_buffer += (np.array(audio_ring_buf)[num_samples:]).tobytes()
+                            # Since the delay is earlier, assume VAD was used to trigger
+                            self.vad_during_recording = True
 
                 elif cmd['cmd'] == 'speech_recognizer_cancel':
                     if self.speech_recog_active and self.recording:
