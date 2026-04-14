@@ -112,8 +112,8 @@ class SpeechProcessor():
         self.recording_buffer = b""
         self.vad_during_recording = False
 
-    def notify_recording_started(self):
-        self.status_callback(self.callback_context, {"msg": "recording_started"})
+    def notify_recording_started(self, using_pre_buffered_data):
+        self.status_callback(self.callback_context, {"msg": "recording_started", "using_pre_buffered_data": using_pre_buffered_data})
 
     def notify_recording_stopped(self):
         self.status_callback(self.callback_context, {"msg": "recording_stopped"})
@@ -150,7 +150,6 @@ class SpeechProcessor():
                     else:
                         delay = cmd['args'].delay
 
-                        self.notify_recording_started()
                         self.max_record_chunks = int(cmd['args'].timeout/self.chunk_period_s)
                         self.speech_recog_active = True
                         self.reset_recording()
@@ -167,6 +166,9 @@ class SpeechProcessor():
                             self.recording_buffer += (np.array(audio_ring_buf)[num_samples:]).tobytes()
                             # Since the delay is earlier, assume VAD was used to trigger
                             self.vad_during_recording = True
+                        self.notify_recording_started(delay < 0)
+
+
 
                 elif cmd['cmd'] == 'speech_recognizer_cancel':
                     if self.speech_recog_active and self.recording:

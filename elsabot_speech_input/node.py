@@ -120,8 +120,13 @@ class SpeechInput(Node):
         self.get_logger().info(f'Wakeword: {wakeword}')
         self.report_wakeword(wakeword)
 
-    def recording_callback(self, active):
+    def recording_callback(self, active, using_pre_buffered_data):
         self.get_logger().info(f'Recording: {active}')
+
+        # Don't play start of recording tone if recording started with
+        # audio spoken before start of recording
+        if active and using_pre_buffered_data:
+            return
 
         if not self.audio_playback_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().info('Error, cannot play recording feedback, play audio service not available')

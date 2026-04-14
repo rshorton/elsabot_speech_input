@@ -81,9 +81,9 @@ class SpeechInputServerClient():
                     elif data['msg'] == 'vad':
                         self.vad_cb(data['active'])
                     elif data['msg'] == 'recording_started':
-                        self.recording_cb(True)
+                        self.recording_cb(True, data['using_pre_buffered_data'])
                     elif data['msg'] == 'recording_stopped':
-                        self.recording_cb(False)
+                        self.recording_cb(False, False)
                     elif data['msg'] == 'heartbeat':
                         pass
                     else:
