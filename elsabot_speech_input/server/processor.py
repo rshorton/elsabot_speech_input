@@ -1,13 +1,17 @@
 
+import os
 import io
 import queue
 import time
 from datetime import datetime
 import json
+from pathlib import Path
 
 import pyaudio
 import numpy as np
 from numpy_ringbuffer import RingBuffer
+
+import scipy.signal as signal
 
 import openwakeword
 from openwakeword.model import Model
@@ -27,7 +31,7 @@ class SpeechProcessor():
         self.oww_model_framework = 'onnx'
         self.wake_word_thresh = 0.8
 
-        self.vad_thresh = 0.85
+        self.vad_thresh = 0.5
 
         self.input_stream = None
         self.def_audio_dev_name = 'ReSpeaker'
@@ -37,14 +41,14 @@ class SpeechProcessor():
 
         self.chunk_period_s = self.audio_chunk_size/self.sample_rate
 
-        self.max_record_duration_s = 10.0
+        self.max_record_duration_s = 25.0
         self.max_record_chunks = int(self.max_record_duration_s/self.chunk_period_s)
         print(f'{self.log_prefix} Max record chunks: {self.max_record_chunks}')
 
         self.pre_recording_delay = 0
         self.pre_recording_delay_chunk_cnt = int(self.pre_recording_delay/self.chunk_period_s)
 
-        self.stop_record_delay_after_no_vad_s = 1.0
+        self.stop_record_delay_after_no_vad_s = 2.0
         self.stop_record_delay_after_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_s/self.chunk_period_s)
         print(f'{self.log_prefix} Stop record delay after no vad (chunks): {self.stop_record_delay_after_no_vad_chunk_cnt}')
 
@@ -55,6 +59,27 @@ class SpeechProcessor():
         self.whisper_model = WhisperModel(self.whisper_model_path, device="cuda", compute_type="int8_float16")
 
         self.test_rec_file = "/jetson_ws/test_audio.wav"
+
+        self.init_prompt_file = "initial_prompt.wav"
+
+        from pathlib import Path
+        script_dir = Path(__file__).parent.resolve()
+        initial_prompt_path = os.path.join(script_dir, self.init_prompt_file)
+
+        audio_data, sample_rate = sf.read(initial_prompt_path, dtype='float32')
+
+        if len(audio_data.shape) > 1:
+            audio_data = audio_data.mean(axis=1)
+
+        segments, info = self.whisper_model.transcribe(audio_data, initial_prompt="your name is elsabot, elsabot, elsabot, elsabot.", temperature=1.0,
+                                                       language=self.whisper_language, beam_size=8, no_speech_threshold=0.2, vad_filter=True, repetition_penalty=1.2)
+        text = ""
+        for segment in segments:
+            #print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
+            text += segment.text
+        print(f'{self.log_prefix} Initial prompt output: {text}')
+
+        self.filter = signal.butter(6, [200, 2200], btype='bandpass', fs=self.sample_rate, output='sos')
 
     def open_wakeword_model(self, ww_name, ww_model_path):
         self.oww_model = Model(wakeword_models=[ww_model_path], inference_framework=self.oww_model_framework)
@@ -87,7 +112,8 @@ class SpeechProcessor():
             self.status_callback(self.callback_context, {"msg": "stt_recognizing"})
             sf.write("/jetson_ws/speech.wav", audio_data_array, self.sample_rate)
 
-            segments, info = self.whisper_model.transcribe(audio_data_array, language=self.whisper_language, beam_size=5, no_speech_threshold=0.4)
+            segments, info = self.whisper_model.transcribe(audio_data_array, temperature=1.0, language=self.whisper_language,
+                                                           beam_size=8, no_speech_threshold=0.2, vad_filter=True, repetition_penalty=1.2)
             #print(f"{self.log_prefix} Detected language '{info.language}' with probability {info.language_probability}")
 
             text = ""
@@ -117,6 +143,10 @@ class SpeechProcessor():
 
     def notify_recording_stopped(self):
         self.status_callback(self.callback_context, {"msg": "recording_stopped"})
+
+    def audio_snapshot(self, buffer):
+        to_save = np.array(buffer)
+        sf.write(self.test_rec_file, to_save, self.sample_rate)
 
     def worker(self):
         print("{self.log_prefix} worker thread started")
@@ -168,8 +198,6 @@ class SpeechProcessor():
                             self.vad_during_recording = True
                         self.notify_recording_started(delay < 0)
 
-
-
                 elif cmd['cmd'] == 'speech_recognizer_cancel':
                     if self.speech_recog_active and self.recording:
                         self.speech_recog_active = False
@@ -182,6 +210,9 @@ class SpeechProcessor():
                         self.recording_stop_listening = True
                         print(f'{self.log_prefix} Speech recog recording finished')
 
+                elif cmd['cmd'] == 'audio_snapshot':
+                    self.audio_snapshot(audio_ring_buf)
+
                 self.queue.task_done()
             except queue.Empty:
                 pass
@@ -193,10 +224,16 @@ class SpeechProcessor():
                 continue
 
             audio = np.frombuffer(chunk, dtype=np.int16) [0::self.channels]
+
             audio_ring_buf.extend(audio)
 
             try:
-                vad(audio)
+
+                audio_float = audio.astype(np.float32)/32768.0
+                audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
+                audio_vad = (audio_float_filtered * 32767).astype(np.int16)
+
+                vad(audio_vad)
                 # Consider last 10 frames (1280/16000*10= 800ms)
                 vad_frames = list(vad.prediction_buffer)[-10:]
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
@@ -248,6 +285,7 @@ class SpeechProcessor():
                                 print(f'{self.log_prefix} finished speech-to-text (no speech detected): {""}')
                                 self.status_callback(self.callback_context, {"msg": "stt_ok", "text": ""})
                                 self.speech_recog_active = False
+                                self.audio_snapshot(audio_ring_buf)
                             else:
                                 self.start_speech_to_text(self.recording_buffer)
                             self.recording = False

@@ -7,10 +7,6 @@
   <maintainer email="none@none.com">Scott Horton</maintainer>
   <license>MIT</license>
 
-  <exec_depend>python-asyncio</exec_depend>
-  <exec_depend>python-websockets</exec_depend>
-  <exec_depend>python-httpx</exec_depend>
-
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

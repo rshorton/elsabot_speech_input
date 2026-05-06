@@ -64,7 +64,7 @@ class SpeechRecogStartArgs(BaseModel):
 
 @app.post("/speech_recognizer_start")
 def receive_command(args: SpeechRecogStartArgs):
-    print(f"HTTP Post: Received speech_recognizer_start")
+    print(f"HTTP Post: Received speech_recognizer_start {str(args)}")
     speech_processor.new_command({'cmd': 'speech_recognizer_start', 'args': args})
     
     return {
