@@ -35,11 +35,13 @@ class SpeechProcessor():
 
         self.input_stream = None
         self.def_audio_dev_name = 'ReSpeaker'
+        # channels to use out of total channels in stream (6 for respeaker)
         self.channels = 1
         self.audio_chunk_size = 1280
         self.sample_rate = 16000
 
         self.chunk_period_s = self.audio_chunk_size/self.sample_rate
+        print(f'{self.log_prefix} Chunk period(sec): {self.chunk_period_s}')
 
         self.max_record_duration_s = 25.0
         self.max_record_chunks = int(self.max_record_duration_s/self.chunk_period_s)
@@ -79,7 +81,9 @@ class SpeechProcessor():
             text += segment.text
         print(f'{self.log_prefix} Initial prompt output: {text}')
 
-        self.filter = signal.butter(6, [200, 2200], btype='bandpass', fs=self.sample_rate, output='sos')
+        self.vad_filter = False
+        if self.vad_filter:
+            self.filter = signal.butter(6, [200, 2200], btype='bandpass', fs=self.sample_rate, output='sos')
 
     def open_wakeword_model(self, ww_name, ww_model_path):
         self.oww_model = Model(wakeword_models=[ww_model_path], inference_framework=self.oww_model_framework)
@@ -132,7 +136,7 @@ class SpeechProcessor():
     def reset_recording(self):
         self.recording_chunk_cnt = 0
         self.recording_delay_chunk_cnt = 0
-        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt*2.0)
+        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt)
         self.recording_stop_listening = False
         self.recording = False
         self.recording_buffer = b""
@@ -179,13 +183,13 @@ class SpeechProcessor():
                         print(f'{self.log_prefix} Speech recog already active')
                     else:
                         delay = cmd['args'].delay
-
-                        self.max_record_chunks = int(cmd['args'].timeout/self.chunk_period_s)
+                        max_record_time = cmd['args'].timeout
+                        self.max_record_chunks = int(max_record_time/self.chunk_period_s)
                         self.speech_recog_active = True
                         self.reset_recording()
                         self.recording = True
 
-                        print(f'{self.log_prefix} Speech recog recording start')
+                        print(f'{self.log_prefix} Speech recog recording start, max_record_time: {max_record_time}, max_record_chunks: {self.max_record_chunks}')
                         self.recording_delay_chunk_cnt = 0
                         if delay > 0:
                             self.recording_delay_chunk_cnt = int(delay/self.chunk_period_s)
@@ -228,12 +232,14 @@ class SpeechProcessor():
             audio_ring_buf.extend(audio)
 
             try:
+                if self.vad_filter:
+                    audio_float = audio.astype(np.float32)/32768.0
+                    audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
+                    audio_vad = (audio_float_filtered * 32767).astype(np.int16)
+                    vad(audio_vad)
+                else:                    
+                    vad(audio)
 
-                audio_float = audio.astype(np.float32)/32768.0
-                audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
-                audio_vad = (audio_float_filtered * 32767).astype(np.int16)
-
-                vad(audio_vad)
                 # Consider last 10 frames (1280/16000*10= 800ms)
                 vad_frames = list(vad.prediction_buffer)[-10:]
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
