@@ -88,7 +88,9 @@ class SpeechInput(Node):
 
     def stt_execute_callback(self, goal_handle):
         self.clear_stt_results_queue()
-        self.speech_server_client.start_speech_recognizer(goal_handle.request.timeout, goal_handle.request.delay)
+        self.speech_server_client.start_speech_recognizer(goal_handle.request.max_speech_duration, goal_handle.request.start_delay,
+            goal_handle.request.pre_speech_timeout, goal_handle.request.post_speech_timeout)
+
         # Wait for the result
         r = self.stt_results_queue.get()
 

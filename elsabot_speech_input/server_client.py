@@ -103,9 +103,16 @@ class SpeechInputServerClient():
         except Exception as e:
             self.logger.error(f"HTTP Request failed: {e}")
 
-    def start_speech_recognizer(self, timeout, delay):
-        args = {'timeout': timeout, 'delay': delay}
-        self.logger.info(f"Recog delay: {delay}, timeout: {timeout}")
+        self.speech_server_client.start_speech_recognizer(goal_handle.request.max_speech_duration, goal_handle.request.start_delay,
+            goal_handle.request.pre_speech_timeout, goal_handle.request.post_speech_timeout)
+
+
+    def start_speech_recognizer(self, max_speech_duration, start_delay, pre_speech_timeout, post_speech_timeout):
+        args = {'max_speech_duration': max_speech_duration,
+                'start_delay': start_delay,
+                'pre_speech_timeout': pre_speech_timeout,
+                'post_speech_timeout': post_speech_timeout}
+        self.logger.info(f"Recog speech, start_delay: {start_delay}, max_speech_duration: {max_speech_duration},                         pre_speech_timeout: {pre_speech_timeout},  post_speech_timeout: {post_speech_timeout}")
         asyncio.run_coroutine_threadsafe(self._send_http_post('speech_recognizer_start', args), self.loop)
 
     def finish_speech_recognizer(self):

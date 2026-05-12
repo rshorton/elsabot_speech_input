@@ -43,16 +43,12 @@ class SpeechProcessor():
         self.chunk_period_s = self.audio_chunk_size/self.sample_rate
         print(f'{self.log_prefix} Chunk period(sec): {self.chunk_period_s}')
 
-        self.max_record_duration_s = 25.0
-        self.max_record_chunks = int(self.max_record_duration_s/self.chunk_period_s)
-        print(f'{self.log_prefix} Max record chunks: {self.max_record_chunks}')
+        self.max_speech_duration = 25       # Max duration of recorded speech
+        self.def_pre_speech_timeout = 2     # Initial record timeout if no speech
+        self.def_post_speech_timeout = 2    # Record timeout after hearing some speech
 
-        self.pre_recording_delay = 0
-        self.pre_recording_delay_chunk_cnt = int(self.pre_recording_delay/self.chunk_period_s)
-
-        self.stop_record_delay_after_no_vad_s = 2.0
-        self.stop_record_delay_after_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_s/self.chunk_period_s)
-        print(f'{self.log_prefix} Stop record delay after no vad (chunks): {self.stop_record_delay_after_no_vad_chunk_cnt}')
+        self.pre_speech_timeout = self.def_pre_speech_timeout
+        self.post_speech_timeout = self.def_post_speech_timeout
 
         self.speech_recog_active = False
 
@@ -136,7 +132,17 @@ class SpeechProcessor():
     def reset_recording(self):
         self.recording_chunk_cnt = 0
         self.recording_delay_chunk_cnt = 0
-        self.recording_no_vad_chunk_cnt = int(self.stop_record_delay_after_no_vad_chunk_cnt)
+
+        self.max_record_chunks = int(self.max_speech_duration/self.chunk_period_s)
+        print(f'{self.log_prefix} Max record chunks: {self.max_record_chunks}')
+
+        self.pre_speech_vad_timeout_chunk_cnt = int(self.pre_speech_timeout/self.chunk_period_s)
+        print(f'{self.log_prefix} Stop record if no initial speech after (chunks): {self.pre_speech_vad_timeout_chunk_cnt}')
+
+        self.post_speech_vad_timeout_chunk_cnt = int(self.post_speech_timeout/self.chunk_period_s)
+        print(f'{self.log_prefix} Stop record if no speech after (chunks): {self.post_speech_vad_timeout_chunk_cnt}')
+
+        self.recording_no_vad_chunk_cnt = int(self.pre_speech_vad_timeout_chunk_cnt)
         self.recording_stop_listening = False
         self.recording = False
         self.recording_buffer = b""
@@ -182,25 +188,28 @@ class SpeechProcessor():
                     if self.speech_recog_active:
                         print(f'{self.log_prefix} Speech recog already active')
                     else:
-                        delay = cmd['args'].delay
-                        max_record_time = cmd['args'].timeout
-                        self.max_record_chunks = int(max_record_time/self.chunk_period_s)
+                        start_delay = cmd['args'].start_delay
+                        self.pre_speech_timeout = cmd['args'].pre_speech_timeout if cmd['args'].pre_speech_timeout > 0 \
+                            else self.def_pre_speech_timeout
+                        self.post_speech_timeout = cmd['args'].post_speech_timeout if cmd['args'].post_speech_timeout > 0 \
+                            else self.def_post_speech_timeout
+                        self.max_speech_duration = cmd['args'].max_speech_duration
+
                         self.speech_recog_active = True
                         self.reset_recording()
                         self.recording = True
 
-                        print(f'{self.log_prefix} Speech recog recording start, max_record_time: {max_record_time}, max_record_chunks: {self.max_record_chunks}')
                         self.recording_delay_chunk_cnt = 0
-                        if delay > 0:
-                            self.recording_delay_chunk_cnt = int(delay/self.chunk_period_s)
-                            print(f'Record with delay: {delay}, num chunks: {self.recording_delay_chunk_cnt}')
-                        elif delay < 0:
-                            num_samples = int(delay*self.sample_rate)
-                            print(f'Record with pre-start data, delay: {delay}, num samples: {num_samples}')
+                        if start_delay > 0:
+                            self.recording_delay_chunk_cnt = int(start_delay/self.chunk_period_s)
+                            print(f'Record with start_delay: {start_delay}, num chunks: {self.recording_delay_chunk_cnt}')
+                        elif start_delay < 0:
+                            num_samples = int(start_delay*self.sample_rate)
+                            print(f'Record with pre-start data, start_delay: {start_delay}, num samples: {num_samples}')
                             self.recording_buffer += (np.array(audio_ring_buf)[num_samples:]).tobytes()
-                            # Since the delay is earlier, assume VAD was used to trigger
+                            # Since the start_delay is earlier, assume VAD was used to trigger
                             self.vad_during_recording = True
-                        self.notify_recording_started(delay < 0)
+                        self.notify_recording_started(start_delay < 0)
 
                 elif cmd['cmd'] == 'speech_recognizer_cancel':
                     if self.speech_recog_active and self.recording:
@@ -262,7 +271,6 @@ class SpeechProcessor():
                 if self.recording:
                     if self.recording_delay_chunk_cnt > 0:
                         self.recording_delay_chunk_cnt -= 1
-                        #print(f'{self.log_prefix} pre-record delay')
 
                         if self.recording_delay_chunk_cnt == 0:
                             vad = openwakeword.VAD()
@@ -276,10 +284,9 @@ class SpeechProcessor():
                         self.recording_chunk_cnt += 1
 
                         if cur_vad:
-                            self.recording_no_vad_chunk_cnt = self.stop_record_delay_after_no_vad_chunk_cnt
+                            self.recording_no_vad_chunk_cnt = self.post_speech_vad_timeout_chunk_cnt
                         else:
                             self.recording_no_vad_chunk_cnt -= 1
-                            #print(f'recording_no_vad_chunk_cnt {self.recording_no_vad_chunk_cnt}')
                         
                         if self.recording_stop_listening or \
                             self.recording_chunk_cnt >= self.max_record_chunks or \

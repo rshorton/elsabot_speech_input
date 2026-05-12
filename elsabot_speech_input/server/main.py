@@ -59,8 +59,10 @@ async def send_heartbeat():
         await asyncio.sleep(5)
 
 class SpeechRecogStartArgs(BaseModel):
-    timeout: float
-    delay: float
+    max_speech_duration: float
+    start_delay: float
+    pre_speech_timeout: int
+    post_speech_timeout: int
 
 @app.post("/speech_recognizer_start")
 def receive_command(args: SpeechRecogStartArgs):
