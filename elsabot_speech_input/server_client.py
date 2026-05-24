@@ -80,6 +80,7 @@ class SpeechInputServerClient():
                     elif data['msg'] == 'wakeword_detected':
                         self.wakeword_cb(data['wakeword'])
                     elif data['msg'] == 'vad':
+                        self.logger.info(f"VAD: active: {data['active']}, cnt: {data['cnt']}")
                         self.vad_cb(data['active'])
                     elif data['msg'] == 'recording_started':
                         self.recording_cb(True, data['using_pre_buffered_data'])

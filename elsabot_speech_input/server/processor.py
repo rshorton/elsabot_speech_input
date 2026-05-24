@@ -31,7 +31,7 @@ class SpeechProcessor():
         self.oww_model_framework = 'onnx'
         self.wake_word_thresh = 0.8
 
-        self.vad_thresh = 0.5
+        self.vad_thresh = 0.8
 
         self.input_stream = None
         self.def_audio_dev_name = 'ReSpeaker'
@@ -80,6 +80,10 @@ class SpeechProcessor():
         self.vad_filter = False
         if self.vad_filter:
             self.filter = signal.butter(6, [200, 2200], btype='bandpass', fs=self.sample_rate, output='sos')
+            samp_freq = 1000  # Sample frequency (Hz)
+            notch_freq = 700.0  # Frequency to be removed from signal (Hz)
+            quality_factor = 3.0  # Quality factor
+            self.b_notch, self.a_notch = signal.iirnotch(notch_freq, quality_factor, self.sample_rate)
 
     def open_wakeword_model(self, ww_name, ww_model_path):
         self.oww_model = Model(wakeword_models=[ww_model_path], inference_framework=self.oww_model_framework)
@@ -113,7 +117,8 @@ class SpeechProcessor():
             sf.write("/jetson_ws/speech.wav", audio_data_array, self.sample_rate)
 
             segments, info = self.whisper_model.transcribe(audio_data_array, temperature=1.0, language=self.whisper_language,
-                                                           beam_size=8, no_speech_threshold=0.2, vad_filter=True, repetition_penalty=1.2)
+                                                           beam_size=8, no_speech_threshold=0.2, vad_filter=True,
+                                                           vad_parameters=dict(threshold=0.8, min_silence_duration_ms=500), repetition_penalty=1.2)
             #print(f"{self.log_prefix} Detected language '{info.language}' with probability {info.language_probability}")
 
             text = ""
@@ -243,7 +248,9 @@ class SpeechProcessor():
             try:
                 if self.vad_filter:
                     audio_float = audio.astype(np.float32)/32768.0
-                    audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
+                    #audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
+                    #audio_float_filtered = signal.sosfiltfilt(self.filter, audio_float)
+                    audio_float_filtered = signal.filtfilt(self.b_notch, self.a_notch, audio_float)
                     audio_vad = (audio_float_filtered * 32767).astype(np.int16)
                     vad(audio_vad)
                 else:                    
@@ -253,11 +260,15 @@ class SpeechProcessor():
                 vad_frames = list(vad.prediction_buffer)[-10:]
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
 
-                cur_vad = vad_max_score > self.vad_thresh
+                num_frames_above_thresh = sum(f > self.vad_thresh for f in vad_frames)
+                print(f'num_frames_above_thresh {num_frames_above_thresh}')
+
+                cur_vad = vad_max_score > self.vad_thresh and (self.recording or
+                          (num_frames_above_thresh > 2))
                 if cur_vad != vad_active:
                     vad_active = cur_vad
                     print(f'{self.log_prefix} vad change: {cur_vad}')
-                    self.status_callback(self.callback_context, {"msg": "vad", "active": bool(vad_active)})
+                    self.status_callback(self.callback_context, {"msg": "vad", "active": bool(vad_active), "cnt": int(num_frames_above_thresh)})
 
                     if test_rec and cur_vad:
                         test_rec_save_after_chunks = 2/self.chunk_period_s
