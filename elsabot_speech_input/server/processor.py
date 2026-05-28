@@ -261,7 +261,7 @@ class SpeechProcessor():
                 vad_max_score = np.max(vad_frames) if len(vad_frames) > 0 else 0
 
                 num_frames_above_thresh = sum(f > self.vad_thresh for f in vad_frames)
-                print(f'num_frames_above_thresh {num_frames_above_thresh}')
+                #print(f'num_frames_above_thresh {num_frames_above_thresh}')
 
                 cur_vad = vad_max_score > self.vad_thresh and (self.recording or
                           (num_frames_above_thresh > 2))
