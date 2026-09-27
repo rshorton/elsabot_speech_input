@@ -25,6 +25,9 @@ class SpeechInput(Node):
         self.declare_parameter('stt_server_host_and_port', '127.0.0.1:8800')
         stt_server_host_and_port = self.get_parameter('stt_server_host_and_port').get_parameter_value().string_value
 
+        self.declare_parameter('mic_device_type', 'respeaker_xcv3800')
+        mic_device_type = self.get_parameter('mic_device_type').get_parameter_value().string_value
+
         self.wake_word_model_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'wakewords/')
         self.wake_word_model_dir_server = '/jetson_ws/src/elsabot_speech_input/wakewords/'
         self.audio_file_dir = os.path.join(get_package_share_directory('elsabot_speech_input'), 'audio_files/')
@@ -60,6 +63,7 @@ class SpeechInput(Node):
         self.sub_speaking = self.create_subscription(Bool, '/head/speaking', self.speaking_callback, 2);
 
         self.speech_server_client = SpeechInputServerClient(self.get_logger(),
+                                                            mic_device_type,
                                                             stt_server_host_and_port,
                                                             self.connected_callback,
                                                             self.wakeword_callback,
@@ -67,6 +71,11 @@ class SpeechInput(Node):
                                                             self.speech_recog_finished_callback,
                                                             self.speech_recog_failed_callback,
                                                             self.recording_callback)
+
+        if not self.speech_server_client.init():
+            self.get_logger().error(f'Error, failed to init mic device')
+            raise RuntimeError("no mic device")
+
         self.speech_server_client.run()
 
         self.audio_playback_client = self.create_client(PlayAudioFile, 'play_audio')
@@ -237,10 +246,14 @@ class SpeechInput(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    server_node = SpeechInput()
 
-    rclpy.spin(server_node)
-    server_node.destroy_node()
+    try:
+        server_node = SpeechInput()
+        rclpy.spin(server_node)
+        server_node.destroy_node()
+    except Exception as e:
+        print(f"Caught an exception: {e}")        
+   
     rclpy.shutdown()
 
 if __name__ == '__main__':

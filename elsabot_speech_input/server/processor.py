@@ -94,17 +94,24 @@ class SpeechProcessor():
         FORMAT = pyaudio.paInt16
         audio = pyaudio.PyAudio()
 
+        device_name = device_name.lower()
+
         device_index = None
         if device_name is not None:
             for i in range(audio.get_device_count()):
                 info = audio.get_device_info_by_index(i)
                 print(f'{self.log_prefix} audio dev info: {info}')
-                if device_name in info['name'] and info['maxInputChannels'] > 0:
+                if device_name in info['name'].lower() and info['maxInputChannels'] > 0:
                     device_index = info['index']
                     print(f'{self.log_prefix} Using device {info["name"]}, index {device_index} chans: {info["maxInputChannels"]}')
                     break
 
+        if device_index is None:
+            print(f'{self.log_prefix} Error, failed to find device {device_name}')
+            return False
+
         self.input_stream = audio.open(format=FORMAT, channels=self.channels, rate=self.sample_rate, input=True, input_device_index=device_index)
+        return True
 
     def start_speech_to_text(self, audio):
         print(f'{self.log_prefix} starting speech to text, num samples: {len(audio)}')
@@ -168,7 +175,8 @@ class SpeechProcessor():
 
         vad = openwakeword.VAD()
 
-        self.open_input_stream(self.def_audio_dev_name)
+        if self.open_input_stream(self.def_audio_dev_name) == False:
+            return
 
         vad_active = False
         ww_active = False

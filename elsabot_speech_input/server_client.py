@@ -7,12 +7,14 @@ import json
 import time
 from pathlib import Path
 
-from .tuning import Tuning, find
+from .respeaker_xvf3800 import Respeaker_xvf3800
+from .respeaker_xvf3000 import Respeaker_xvf3000
 
 class SpeechInputServerClient():
-    def __init__(self, logger, server_host_and_port, connected_cb, wakeword_cb, vad_cb,
+    def __init__(self, logger, respeaker_device_type, server_host_and_port, connected_cb, wakeword_cb, vad_cb,
                  speech_recog_finished_cb, speech_recog_failed_cb, recording_cb):
         self.logger = logger
+        self.respeaker_device_type = respeaker_device_type
         self.server_host_and_port = server_host_and_port
 
         self.loop = asyncio.new_event_loop()
@@ -25,10 +27,18 @@ class SpeechInputServerClient():
         self.speech_recog_failed_cb = speech_recog_failed_cb
         self.recording_cb = recording_cb
 
-        self.seeed_mic_dev = find()
-        if self.seeed_mic_dev is None:
-            self.logger.error(f'Error, failed to find Seeed Mic device')
-        self.configure_seed_mic_dev()
+    def init(self):
+        if self.respeaker_device_type == 'respeaker_xcv3800':
+            self.logger.info(f'Using Respeaker_xvf3800')
+            self.seeed_mic_dev = Respeaker_xvf3800(self.logger)
+        else:
+            self.logger.info(f'Using Respeaker_xvf3000')
+            self.seeed_mic_dev = Respeaker_xvf3000(self.logger)
+
+        if not self.seeed_mic_dev.init():
+            self.logger.error(f'Error, failed to init Mic device')
+            return False
+        return True
 
     def run(self):
         self.logger.info(f'Starting client thread')
@@ -37,16 +47,10 @@ class SpeechInputServerClient():
         self.thread = threading.Thread(target=self._run_async_loop, daemon=True).start()
 
     def read_mic_array_aoa(self):
-        return self.seeed_mic_dev.read('DOAANGLE')
+        return self.seeed_mic_dev.read_mic_array_aoa()
 
     def read_mic_array_vad(self):
-        return self.seeed_mic_dev.read('VOICEACTIVITY')
-
-    def configure_seed_mic_dev(self):
-        self.seeed_mic_dev.write('GAMMAVAD_SR', 2)
-        self.seeed_mic_dev.write('AGCGAIN', 15)
-        self.seeed_mic_dev.write('AGCONOFF', 0)
-        return
+        return self.seeed_mic_dev.read_mic_array_vad()
 
     def _run_async_loop(self):
         # Runs the asyncio loop in a dedicated background thread.
