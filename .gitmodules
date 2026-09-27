@@ -1,0 +1,3 @@
+[submodule "elsabot_speech_input/reSpeaker_XVF3800_USB_4MIC_ARRAY"]
+	path = elsabot_speech_input/reSpeaker_XVF3800_USB_4MIC_ARRAY
+	url = git@github.com:rshorton/reSpeaker_XVF3800_USB_4MIC_ARRAY.git
